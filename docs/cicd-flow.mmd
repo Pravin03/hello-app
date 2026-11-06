@@ -1,0 +1,26 @@
+flowchart TB
+    DEV([Developer]) -->|git push| GIT[(Git repo<br/>GitHub / GitLab)]
+    GIT -->|Poll SCM / webhook| J{{Jenkins}}
+
+    subgraph PIPE[Jenkins pipeline - Jenkinsfile]
+        direction TB
+        S1[1. Checkout] --> S2[2. Build & Test<br/>mvn clean verify<br/>in Maven container]
+        S2 -->|tests pass| S3[3. Docker Build<br/>hello-app:BUILD_NUMBER]
+        S3 --> S4[4. Docker Push]
+        S4 --> S5[5. Deploy<br/>kubectl apply]
+        S5 --> S6[6. Verify<br/>rollout status]
+    end
+
+    J --> S1
+    S2 -.->|test fails| STOP([Build failed<br/>nothing deployed])
+    S2 -.-> JR[JUnit report]
+    S4 --> REG[(Docker Hub<br/>image registry)]
+
+    subgraph K8S[Kubernetes cluster - namespace demo]
+        direction TB
+        DEP[Deployment hello-app<br/>2 pods, rolling update] --> SVC[Service NodePort 30080]
+    end
+
+    S5 --> DEP
+    REG -->|pull image| DEP
+    SVC --> USER([Users / curl])
