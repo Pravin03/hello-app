@@ -16,7 +16,7 @@ public class HelloController {
 
     @GetMapping("/")
     public Map<String, String> home() {
-        return Map.of("message", "Hello from hello-app", "version", version);
+        return Map.of("message", "Hello from hello-app v2", "version", version);
     }
 
     @GetMapping("/hello")

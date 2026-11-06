@@ -19,7 +19,7 @@ class HelloControllerTest {
     void homeReturnsMessageAndVersion() throws Exception {
         mvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Hello from hello-app"))
+                .andExpect(jsonPath("$.message").value("Hello from hello-app v2"))
                 .andExpect(jsonPath("$.version").value("dev"));
     }
 
