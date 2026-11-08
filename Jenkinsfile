@@ -1,121 +1,121 @@
-// CI/CD pipeline: Checkout -> Build & Test -> Docker Build -> Docker Push -> Deploy to Kubernetes -> Verify
-//
-// Jenkins needs (see README.md):
-//   Plugins:     Pipeline, Git, Docker Pipeline, Credentials Binding, JUnit, Timestamper
-//   Credentials: dockerhub-creds (Username with password), kubeconfig (Secret file)
-//   On the agent: docker, kubectl; the jenkins user is in the "docker" group
 
 pipeline {
     agent any
 
     environment {
-        // CHANGE THIS to your Docker Hub username (or registry/repo)
-        DOCKER_REPO = 'pravin2110/hello-app'
-        IMAGE_TAG   = "${env.BUILD_NUMBER}"
-        IMAGE       = "${DOCKER_REPO}:${IMAGE_TAG}"
-        K8S_NS      = 'demo'
-    }
-
-    options {
-        timestamps()
-        timeout(time: 30, unit: 'MINUTES')
-        buildDiscarder(logRotator(numToKeepStr: '20'))
-        disableConcurrentBuilds()
+        DOCKER_USER = 'pravin2110'
+        IMAGE_NAME = 'cicd-demo'
+        REGISTRY = 'docker.io'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        FULL_IMAGE = "${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}"
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
+                echo 'Checking out source code'
+
                 checkout scm
-                sh 'git log -1 --oneline'
             }
         }
 
-        stage('Build & Test') {
-            // Runs Maven inside a container, so Jenkins needs no JDK/Maven installed
-            agent {
-                docker {
-                    image 'maven:3.9-eclipse-temurin-17'
-                    reuseNode true
-                }
-            }
+        stage('Maven Clean') {
             steps {
-                // Keep the Maven cache in the workspace so it is reused by the next build
-                // and is writable by the jenkins user inside the container.
-                sh 'mvn -B -Dmaven.repo.local="$WORKSPACE/.m2/repository" clean verify'
+                sh 'mvn clean'
             }
-            post {
-                always {
-                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
-                }
+        }
+
+        stage('Unit Testing') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Build Application') {
+            steps {
+                sh 'mvn package -DskipTests'
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh '''
-                    docker build -t "$IMAGE" -t "$DOCKER_REPO:latest" .
-                    docker image ls "$DOCKER_REPO"
-                '''
+                sh """
+                    docker build \
+                    -t ${FULL_IMAGE} \
+                    -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
+                """
             }
         }
 
         stage('Docker Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
-                                                  usernameVariable: 'REG_USER',
-                                                  passwordVariable: 'REG_PASS')]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
                     sh '''
-                        echo "$REG_PASS" | docker login -u "$REG_USER" --password-stdin
-                        docker push "$IMAGE"
-                        docker push "$DOCKER_REPO:latest"
+                        set +x
+                        echo "$DOCKER_PASSWORD" | \
+                        docker login -u "$DOCKER_USERNAME" \
+                        --password-stdin
+
+                        docker push "$FULL_IMAGE"
+                        docker push "$DOCKER_USER/$IMAGE_NAME:latest"
+
                         docker logout
                     '''
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Kubernetes Deploy') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh '''
-                        kubectl apply -f k8s/namespace.yaml
-                        sed -e "s|IMAGE_PLACEHOLDER|$IMAGE|" \
-                            -e "s|VERSION_PLACEHOLDER|$IMAGE_TAG|" \
-                            k8s/deployment.yaml | kubectl apply -f -
-                        kubectl apply -f k8s/service.yaml
-                    '''
-                }
+                sh """
+                    kubectl apply -f k8s/
+
+                    kubectl set image \
+                    deployment/cicd-demo \
+                    cicd-demo=${FULL_IMAGE}
+
+                    kubectl rollout status \
+                    deployment/cicd-demo \
+                    --timeout=180s
+                """
             }
         }
 
-        stage('Verify Rollout') {
+        stage('Verify Deployment') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh '''
-                        kubectl -n "$K8S_NS" rollout status deployment/hello-app --timeout=180s
-                        kubectl -n "$K8S_NS" get pods -l app=hello-app -o wide
-                    '''
-                }
+                sh '''
+                    kubectl get deployments
+                    kubectl get pods
+                    kubectl get services
+
+                    kubectl rollout status \
+                    deployment/cicd-demo \
+                    --timeout=180s
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "Deployed ${IMAGE} to namespace ${K8S_NS}"
+            echo 'CI/CD Pipeline completed successfully!'
         }
+
         failure {
-            echo 'Pipeline failed - check the stage logs above.'
-            // Uncomment to roll back automatically if the deploy step broke the app:
-            // withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-            //     sh 'kubectl -n demo rollout undo deployment/hello-app || true'
-            // }
+            echo 'CI/CD Pipeline failed. Please check Jenkins logs.'
         }
+
         always {
-            // Free disk space on the Jenkins machine
-            sh 'docker image rm "$IMAGE" "$DOCKER_REPO:latest" || true'
+            echo 'Pipeline execution completed.'
         }
     }
 }
+

@@ -1,3 +1,4 @@
+
 package com.vertoz.demo;
 
 import org.junit.jupiter.api.Test;
@@ -15,25 +16,29 @@ class HelloControllerTest {
     @Autowired
     private MockMvc mvc;
 
+    // Test 1: Hello API
     @Test
-    void homeReturnsMessageAndVersion() throws Exception {
-        mvc.perform(get("/"))
+    void helloReturnsSuccessMessage() throws Exception {
+
+        mvc.perform(get("/api/hello"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Hello from hello-app v2"))
-                .andExpect(jsonPath("$.version").value("dev"));
+                .andExpect(jsonPath("$.message")
+                        .value("Hello from Spring Boot!"))
+                .andExpect(jsonPath("$.application")
+                        .value("CI/CD Demo"))
+                .andExpect(jsonPath("$.status")
+                        .value("SUCCESS"));
     }
 
+    // Test 2: Version API
     @Test
-    void helloUsesDefaultName() throws Exception {
-        mvc.perform(get("/hello"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Hello, World!"));
-    }
+    void versionReturnsApplicationVersion() throws Exception {
 
-    @Test
-    void helloUsesGivenName() throws Exception {
-        mvc.perform(get("/hello").param("name", "Vertoz"))
+        mvc.perform(get("/api/version"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Hello, Vertoz!"));
+                .andExpect(jsonPath("$.version")
+                        .value("1.0.0"))
+                .andExpect(jsonPath("$.environment")
+                        .value("Kubernetes"));
     }
 }
