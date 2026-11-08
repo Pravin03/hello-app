@@ -16,7 +16,7 @@ public class HelloController {
         return Map.of(
             "message", "Hello from Spring Boot!",
             "application", "CI/CD Demo",
-            "status", "SUCCESS"
+            "status", "SUCCESS------------------------>>"
         );
     }
 
